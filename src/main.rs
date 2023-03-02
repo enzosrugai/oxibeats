@@ -49,7 +49,8 @@ fn main()  -> Result<(), io::Error> {
                 .direction(Direction::Vertical)
                 .constraints(
                     [
-                        Constraint::Length(100),
+                        Constraint::Length(3),
+                        Constraint::Max(4),
                     ]
                     .as_ref(),
                 )
