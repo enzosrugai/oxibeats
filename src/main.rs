@@ -9,7 +9,7 @@ use rand::{thread_rng, Rng};
 use std::io::Read;
 use std::time::Instant;
 use termion::{async_stdin, event::Key, input::TermRead, raw::IntoRawMode};
-use tui::backend::TermionBackend;
+use tui::{backend::TermionBackend, symbols, widgets::LineGauge, style::Modifier};
 use tui::layout::{Constraint, Direction, Layout};
 use tui::style::{Color, Style};
 use tui::text::Spans;
@@ -46,33 +46,20 @@ fn main()  -> Result<(), io::Error> {
             }
             // Create a layout into which to place our blocks.
             let chunks = Layout::default()
-                .direction(Direction::Horizontal)
+                .direction(Direction::Vertical)
                 .constraints(
                     [
-                        Constraint::Percentage(volume_percent),
-                        Constraint::Percentage(100-volume_percent),
+                        Constraint::Length(100),
                     ]
                     .as_ref(),
                 )
                 .split(frame.size());
-
-            // Create a block...
-            let block = Block::default()
-                // With a given title...
-                .title("")
-                // Borders on every side...
-                .borders(Borders::NONE)
-                // The background of the current color...
-                .style(Style::default().bg(Color::Yellow));
-            let block2 = Block::default()
-                // With a given title...
-                .title("")
-                // Borders on every side...
-                .borders(Borders::NONE)
-                // The background of the current color...
-                .style(Style::default().bg(Color::Black));
-            frame.render_widget(block, chunks[0]);
-            frame.render_widget(block2, chunks[1]);
+            let gauge = LineGauge::default()
+            .block(Block::default().borders(Borders::ALL).title("Volume"))
+            .gauge_style(Style::default().fg(Color::White).bg(Color::Black).add_modifier(Modifier::BOLD))
+            .line_set(symbols::line::THICK)
+            .ratio((volume_percent as f64)/100.);
+            frame.render_widget(gauge, chunks[0]);
 
         })?;
 
@@ -132,7 +119,9 @@ impl Vol for Volume{
     fn vol_up(&mut self)-> Result<(),()> {
         if self.vol < Volume::MAX{
             self.vol += 0.01;
-            //TODO saturation
+            if self.vol > Volume::MAX{
+                self.vol = Volume::MAX;
+            }
             return Ok(());
         }
         Err(())
@@ -141,7 +130,9 @@ impl Vol for Volume{
     fn vol_down(&mut self)-> Result<(),()> {
         if self.vol > Volume::MIN{
             self.vol -= 0.01;
-            //TODO saturation
+            if self.vol < Volume::MIN{
+                self.vol = Volume::MIN;
+            }
             return Ok(());
         }
         Err(())
