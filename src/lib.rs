@@ -10,8 +10,8 @@ pub mod audio{
         const MIN:f32 = 0.;
 
 
-        fn vol_up(&mut self)-> Result<(),()>;
-        fn vol_down(&mut self)-> Result<(),()>;
+        fn vol_up(&mut self)-> Option<u16>;
+        fn vol_down(&mut self)-> Option<u16>;
         fn volume(&self)->f32;
         fn vol_percent(&self) -> u16;
     }
@@ -29,26 +29,26 @@ pub mod audio{
 
 
     impl Vol for Volume{
-        fn vol_up(&mut self)-> Result<(),()> {
+        fn vol_up(&mut self)-> Option<u16>{
             if self.vol < Volume::MAX{
                 self.vol += 0.01;
                 if self.vol > Volume::MAX{
                     self.vol = Volume::MAX;
                 }
-                return Ok(());
+                return Some(self.vol_percent());
             }
-            Err(())
+            None
         }
 
-        fn vol_down(&mut self)-> Result<(),()> {
+        fn vol_down(&mut self)-> Option<u16>{
             if self.vol > Volume::MIN{
                 self.vol -= 0.01;
                 if self.vol < Volume::MIN{
                     self.vol = Volume::MIN;
                 }
-                return Ok(());
+                return Some(self.vol_percent())
             }
-            Err(())
+            None
         }
 
         fn volume(&self)->f32 {
@@ -61,20 +61,43 @@ pub mod audio{
     }
 
     pub struct BinauralGenerator{
-        center_freq: i32,
-        binaural_freq: i32, 
-        sample_rate: i32,
-        f_high: i32,
-        f_low: i32,
-        cur_index: u32,
-        cur_index_low: u32,
+        center_freq: u32,
+        binaural_freq: u32, 
+        sample_rate: u32,
+        sine_high: SineWaveform,
+        sine_low: SineWaveform,
         cur_high:bool,
         vol: f32,
         pub next_vol: Arc<Mutex<Volume>>,
     }
 
+    struct SineWaveform{
+        freq : u32,
+        wavetable : Vec<f32>,
+        table_length : u32,
+        cur_index : u32,
+    }
+    impl SineWaveform{
+        pub fn new(freq:u32, sample_rate:u32) -> Self{
+            let table_length = sample_rate/freq;
+            let wavetable = (0..table_length).map(|n| (((n as f32)/(sample_rate as f32))* 2. * std::f32::consts::PI * (freq as f32)).sin()).collect();
+            let cur_index = 0;
+            SineWaveform { freq, wavetable, table_length, cur_index}
+        }
+    }
+    impl Iterator for SineWaveform{
+        type Item = f32;
+        fn next(&mut self) -> Option<Self::Item> {
+            let sample = *self.wavetable.get(self.cur_index as usize)?;
+            self.cur_index += 1;
+            if self.cur_index >= self.table_length{
+                self.cur_index = 0;
+            }
+            Some(sample)
+        }
+    }
     impl BinauralGenerator{
-        pub fn new(center_freq: i32, binaural_freq: i32, sample_rate: i32 ) -> Self{
+        pub fn new(center_freq: u32, binaural_freq: u32, sample_rate: u32 ) -> Self{
             let f_high = center_freq + (binaural_freq/2);
             let f_low = center_freq - (binaural_freq/2);
         
@@ -84,10 +107,8 @@ pub mod audio{
                 center_freq,
                 binaural_freq, 
                 sample_rate, 
-                f_high,
-                f_low,
-                cur_index : 0,
-                cur_index_low: 0,
+                sine_high: SineWaveform::new(f_high, sample_rate),
+                sine_low: SineWaveform::new(f_low, sample_rate),
                 cur_high: false,
                 vol: 1.,
                 next_vol: Arc::new(Mutex::new(Volume::new())),
@@ -103,7 +124,7 @@ pub mod audio{
             2
         }
         fn sample_rate(&self) -> u32{
-            self.sample_rate as u32
+            self.sample_rate
         }
         fn total_duration(&self) -> Option<Duration>{
             None
@@ -115,18 +136,17 @@ pub mod audio{
         
         fn next(&mut self) -> Option<f32>{
             if let Ok(n_vol) = self.next_vol.try_lock(){
-                self.vol = (*n_vol).volume().clone();
+                self.vol = (*n_vol).volume();
             }
-            let sample: Option<f32>;
-            if !self.cur_high{
-                sample = Some ( (((self.cur_index_low as f32)/(self.sample_rate as f32))* 2. * std::f32::consts::PI * (self.f_low as f32)).sin()*self.vol);
-                self.cur_index_low = self.cur_index_low.wrapping_add(1);
+
+            let sample: f32 =    if self.cur_high{
+                self.sine_high.next()? * self.vol
             }else{
-                sample = Some ( (((self.cur_index as f32)/(self.sample_rate as f32))* 2. * std::f32::consts::PI * (self.f_high as f32)).sin()*self.vol);
-                self.cur_index = self.cur_index.wrapping_add(1);
-            }
+                self.sine_low.next()? * self.vol
+            };
+
             self.cur_high = !self.cur_high;
-            sample
+            Some(sample)
         }
     }
 }
